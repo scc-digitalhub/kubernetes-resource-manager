@@ -83,7 +83,7 @@ public class MainController {
         if (authenticationProperties.isOAuth2Enabled()) {
             config.put("REACT_APP_AUTH", "oauth2");
             config.put("REACT_APP_AUTHORITY", authenticationProperties.getOauth2().getIssuerUri());
-            config.put("REACT_APP_CLIENT_ID", authenticationProperties.getOauth2().getAudience());
+            config.put("REACT_APP_CLIENT_ID", authenticationProperties.getOauth2().getClientId());
             if (authenticationProperties.getOauth2().getScopes() != null) {
                 config.put("REACT_APP_SCOPE", String.join(" ", authenticationProperties.getOauth2().getScopes()));
             }
