@@ -54,8 +54,8 @@ auth:
     password: ${KRM_AUTH_BASIC_PASSWORD:}
   oauth2:
     issuer-uri: ${KRM_AUTH_OAUTH2_ISSUER:}
-    audience: ${KRM_AUTH_OAUTH2_AUDIENCE:}
-    client-id: ${KRM_AUTH_OAUTH2_CLIENT_ID:${auth.oauth2.audience}}
+    audience: ${KRM_AUTH_OAUTH2_AUDIENCE:${auth.oauth2.client-id}}
+    client-id: ${KRM_AUTH_OAUTH2_CLIENT_ID:}
     role-claim: ${KRM_AUTH_OAUTH2_ROLE_CLAIM:} 
     scopes: ${KRM_AUTH_OAUTH2_SCOPES:}
 
