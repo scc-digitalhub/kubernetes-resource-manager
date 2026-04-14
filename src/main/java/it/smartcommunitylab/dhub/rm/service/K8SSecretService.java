@@ -17,11 +17,14 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.Map.Entry;
 
+import javax.annotation.Nonnull;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.validation.annotation.Validated;
 
 import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.api.model.SecretBuilder;
@@ -30,12 +33,14 @@ import it.smartcommunitylab.dhub.rm.SystemKeys;
 import it.smartcommunitylab.dhub.rm.model.IdAwareResource;
 import it.smartcommunitylab.dhub.rm.model.dto.SecretDTO;
 import jakarta.annotation.PostConstruct;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
 
 /**
  * Service for K8S Secret resource
  */
 @Service
+@Validated
 public class K8SSecretService extends K8SResourceService<Secret> {
     
     @Value("${kubernetes.secret.managed-by:krm}")
@@ -105,7 +110,13 @@ public class K8SSecretService extends K8SResourceService<Secret> {
      * @param dto
      * @return
      */
-    public IdAwareResource<Secret> add(String namespace, SecretDTO dto) {
+    public IdAwareResource<Secret> add(@Nonnull String namespace, @Valid SecretDTO dto) {
+        // check if secret with the same name already exists
+        List<Secret> secrets = fetch(namespace);
+        Optional<Secret> secretOpt = secrets.stream().filter(s -> s.getMetadata().getName().equals(dto.getName())).findAny();
+        if (secretOpt.isPresent()) throw new IllegalArgumentException("Secret with the same name already exists");
+
+
         if (dto.getData() == null) dto.setData(Collections.emptyMap());
         dto.getData().keySet().forEach(key -> dto.getData().put(key, dto.getData().containsKey(key) ? Base64.getEncoder().encodeToString((dto.getData().get(key) == null ? "" : dto.getData().get(key)).getBytes()): ""));
         Secret secret = new SecretBuilder()
@@ -126,7 +137,12 @@ public class K8SSecretService extends K8SResourceService<Secret> {
      * @param namespace
      * @param secretId
      */
-    public void delete(String namespace, String secretId) {
+    public void delete(@Nonnull String namespace, @Pattern(regexp = SystemKeys.REGEX_CR_ID) String secretId) {
+        // can delete only if the secret exists and matches the filters
+        List<Secret> secrets = fetch(namespace);        
+        Optional<Secret> secretOpt = secrets.stream().filter(s -> s.getMetadata().getName().equals(secretId)).findAny();
+        if (secretOpt.isEmpty()) throw new IllegalArgumentException("No matching secret found");
+
         getResourceCache().invalidate(namespace);
         getKubernetesClient().secrets().inNamespace(namespace).withName(secretId).delete();
     }

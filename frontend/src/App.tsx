@@ -57,7 +57,7 @@ import { httpClientProvider } from './providers/httpClientProvider';
 import { K8SDeploymentList, K8SDeploymentShow } from './resources/k8s/k8s_deployment';
 import { K8SPvcCreate, K8SPvcList, K8SPvcShow } from './resources/k8s/k8s_pvc';
 import { K8SServiceList, K8SServiceShow } from './resources/k8s/k8s_service';
-import { K8SSecretList, K8SSecretShow } from './resources/k8s/k8s_secret';
+import { K8SSecretCreate, K8SSecretList, K8SSecretShow } from './resources/k8s/k8s_secret';
 import { K8SJobList, K8SJobShow } from './resources/k8s/k8s_job';
 import { K8SQuotaList, K8SQuotaShow } from './resources/k8s/k8s_quota';
 
@@ -203,6 +203,7 @@ function DynamicAdminUI() {
             />
             <Resource
                 name="k8s_secret"
+                create={canAccess('k8s_secret', 'write') ? K8SSecretCreate : <></>}
                 list={canAccess('k8s_secret', 'list') ? K8SSecretList : <></>}
                 show={canAccess('k8s_secret', 'read') ? K8SSecretShow  : <></>}
                 icon={KeyIcon}

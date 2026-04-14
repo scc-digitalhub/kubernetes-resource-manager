@@ -23,11 +23,12 @@ import {
     SimpleFormIterator,
     useNotify,
     usePermissions,
+    DeleteWithConfirmButton,
 } from 'react-admin';
 import { Box, Grid, Typography } from '@mui/material';
 import { Breadcrumb } from '@dslab/ra-breadcrumb';
 import { ContentCopy } from '@mui/icons-material';
-import { CreateTopToolbar, ShowTopToolbar } from '../../components/toolbars';
+import { CreateTopToolbar, ListTopToolbar, ShowTopToolbar } from '../../components/toolbars';
 
 
 
@@ -109,13 +110,14 @@ export const K8SSecretList = () => {
 
 return <>
         <Breadcrumb />
-        <List actions={false}>
+        <List actions={<ListTopToolbar hasCreate={hasPermission('write')}/>}>
             <Datagrid bulkActionButtons={false}>
                 <TextField source="metadata.name" />
                 <TextField source="type" />
                 <DataNumField label="resources.k8s_secret.fields.secretnum" />
                 <Box textAlign={'right'}>
                     {hasPermission('read') && <ShowButton />}
+                    {hasPermission('write') && <DeleteWithConfirmButton />}
                 </Box>
             </Datagrid>
         </List>
@@ -145,6 +147,8 @@ const DecodeButton = (props: any) => {
 export const K8SSecretShow = () => {
     const translate = useTranslate();
     const { record } = useShowController();
+    const { permissions } = usePermissions();
+    const hasPermission = (op: string) => permissions && permissions.canAccess('k8s_secret', op)
     if (!record) return null;
     
     return (
@@ -156,7 +160,7 @@ export const K8SSecretShow = () => {
                     recordRepresentation: record.id,
                 })}
             </Typography>
-            <Show actions={<ShowTopToolbar hasYaml hasEdit={false} hasDelete={false} />}>
+            <Show actions={<ShowTopToolbar hasYaml hasEdit={false} hasDelete={hasPermission('write')} />}>
                 <SimpleShowLayout>
                     <TextField source="metadata.name" />
                     <TextField source="type" />

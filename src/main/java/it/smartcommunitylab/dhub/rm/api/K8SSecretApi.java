@@ -14,8 +14,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,7 +27,10 @@ import io.fabric8.kubernetes.api.model.Secret;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import it.smartcommunitylab.dhub.rm.SystemKeys;
 import it.smartcommunitylab.dhub.rm.model.IdAwareResource;
+import it.smartcommunitylab.dhub.rm.model.dto.SecretDTO;
 import it.smartcommunitylab.dhub.rm.service.K8SSecretService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Pattern;
 
 /**
  * API for K8S Secret
@@ -38,7 +44,7 @@ import it.smartcommunitylab.dhub.rm.service.K8SSecretService;
 @PreAuthorize("@authz.canAccess('k8s_secret', 'list')")
 @SecurityRequirement(name = "basicAuth")
 @SecurityRequirement(name = "jwtAuth")
-@RequestMapping(SystemKeys.API_PATH + "/k8s_secret")
+@RequestMapping(SystemKeys.API_PATH)
 @Validated
 public class K8SSecretApi {
 
@@ -56,7 +62,7 @@ public class K8SSecretApi {
      * @return a page of K8S Secret
      */
     @PreAuthorize("@authz.canAccess('k8s_secret', 'list')")
-    @GetMapping
+    @GetMapping("/k8s_secret")
     public Page<IdAwareResource<Secret>> findAll(
         @RequestParam(required = false) Collection<String> id,
         Pageable pageable
@@ -71,9 +77,33 @@ public class K8SSecretApi {
      * @return the K8S Secret
      */
     @PreAuthorize("@authz.canAccess('k8s_secret', 'read')")
-    @GetMapping("/{secretId}")
-    public IdAwareResource<Secret> findById(@PathVariable String secretId) {
+    @GetMapping("/k8s_secret/{secretId}")
+    public IdAwareResource<Secret> findById(@PathVariable @Pattern(regexp = SystemKeys.REGEX_CR_ID) String secretId) {
         return service.findById(namespace, secretId);
+    }
+
+    /**
+     * Delete a specific K8S Secret
+     * 
+      * @param secretId the id of the secret to delete
+      * @return the deleted K8S Secret
+      */
+    @PreAuthorize("@authz.canAccess('k8s_secret', 'write')")
+    @DeleteMapping("/k8s_secret/{secretId}")
+    public void delete(@PathVariable @Pattern(regexp = SystemKeys.REGEX_CR_ID) String secretId) {
+        service.delete(namespace, secretId);
+    }
+
+    /**
+     * Add a new K8S Secret
+     * 
+     * @param secret the K8S Secret to add
+     * @return the added K8S Secret
+     */
+    @PreAuthorize("@authz.canAccess('k8s_secret', 'write')")
+    @PostMapping("/k8s_secret")
+    public IdAwareResource<Secret> add(@RequestBody @Valid SecretDTO secret) {
+        return service.add(namespace, secret);
     }
 
     /**
@@ -84,8 +114,8 @@ public class K8SSecretApi {
      * @return a map with the decoded value
      */
     @PreAuthorize("@authz.canAccess('k8s_secret', 'read')")
-    @GetMapping("/{secretId}/decode/{key:.*}")
-    public Map<String, String> decodeSecret(@PathVariable String secretId, @PathVariable String key) {
+    @GetMapping("/k8s_secret/{secretId}/decode/{key:.*}")
+    public Map<String, String> decodeSecret(@PathVariable @Pattern(regexp = SystemKeys.REGEX_CR_ID) String secretId, @PathVariable String key) {
         return Collections.singletonMap(key,  service.decode(namespace, secretId, key));
     }
 
