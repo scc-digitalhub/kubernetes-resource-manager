@@ -24,6 +24,7 @@ server:
 # application
 application.url: ${APPLICATION_URL:}
 application.core-name: ${KRM_APPLICATION_CORE_NAME:dhcore}
+application.config.exposed: ${KRM_CONFIG_EXPOSED:}
 
 #kubernetes
 kubernetes:
@@ -41,6 +42,8 @@ kubernetes:
   pvc:
     managed-by: ${K8S_PVC_MANAGED_BY:krm}
     storage-classes: ${K8S_PVC_STORAGE_CLASSES:krm}
+  cr:
+    created-by: ${K8S_CR_CREATED_BY:krm}
   secret:
     labels: ${K8S_SELECTOR_LABELS:}
     owners: ${K8S_SELECTOR_OWNERS:}

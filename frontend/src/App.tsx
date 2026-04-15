@@ -39,6 +39,7 @@ import AppDashboard from './pages/Dashboard';
 import { CrdShow } from './resources/crd';
 import { useContext, useState } from 'react';
 import { View, ViewsContext, fetchViews } from './resources';
+import { BackendConfigProvider } from './providers/backendConfigProvider';
 
 //import config
 import { Config } from './providers/configProvider';
@@ -51,6 +52,7 @@ import crDremiorest from './resources/custom/cr.dremiorestservers.operator.dremi
 import crMinioBuckets from './resources/custom/cr.buckets.minio.scc-digitalhub.github.io';
 import crMinioUsers from './resources/custom/cr.users.minio.scc-digitalhub.github.io';
 import crMinioPolicies from './resources/custom/cr.policies.minio.scc-digitalhub.github.io';
+import crHttpRoutes, { GWPolicyView } from './resources/custom/cr.httproutes.gateway.networking.k8s.io';
 
 import { httpClientProvider } from './providers/httpClientProvider';
 
@@ -79,7 +81,9 @@ const customViews: { [index: string]: View } = {
     'policies.minio.scc-digitalhub.github.io': crMinioPolicies,
     'apigws.operator.scc-digitalhub.github.io': crApiGateways,
     'postgrests.operator.postgrest.org': crPostgrest,
-    'dremiorestservers.operator.dremiorestserver.com': crDremiorest    
+    'dremiorestservers.operator.dremiorestserver.com': crDremiorest,
+    'httproutes.gateway.networking.k8s.io': crHttpRoutes,
+    'securitypolicies.gateway.envoyproxy.io': GWPolicyView,
 };
 
 //theming
@@ -109,7 +113,9 @@ function App() {
                 store={store}
                 theme={themeOptions}
             >
-                <DynamicAdminUI />
+                <BackendConfigProvider>
+                    <DynamicAdminUI />
+                </BackendConfigProvider>
             </AdminContext>
         </BrowserRouter>
     );

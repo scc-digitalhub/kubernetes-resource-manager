@@ -7,6 +7,7 @@ import crPostgresUsers from '../resources/custom/cr.postgresusers.db.movetokube.
 import crPostgrest from '../resources/custom/cr.postgrests.operator.postgrest.org';
 import crDremiorest from '../resources/custom/cr.dremiorestservers.operator.dremiorestserver.com';
 import crApiGateways from '../resources/custom/cr.apigws.operator.scc-digitalhub.github.io';
+import crHttpRoutes, { GWPolicyView } from '../resources/custom/cr.httproutes.gateway.networking.k8s.io';
 
 import crMinioBuckets from '../resources/custom/cr.buckets.minio.scc-digitalhub.github.io';
 import crMinioUsers from '../resources/custom/cr.users.minio.scc-digitalhub.github.io';
@@ -69,7 +70,9 @@ export const Config = {
         'policies.minio.scc-digitalhub.github.io': crMinioPolicies,
         'postgrests.operator.postgrest.org': crPostgrest,
         'dremiorestservers.operator.dremiorestserver.com': crDremiorest,
-        'apigws.operator.scc-digitalhub.github.io': crApiGateways
+        'apigws.operator.scc-digitalhub.github.io': crApiGateways,
+        'httproutes.gateway.networking.k8s.io': crHttpRoutes,
+        'securitypolicies.gateway.networking.k8s.io': GWPolicyView,
     },
 };
 

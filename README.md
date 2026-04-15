@@ -112,6 +112,40 @@ To control the creation of the Persistent Volume Claims, it is possible addition
 - `kubernetes.pvc.managed-by` to define the label to be associated with the K8S Resoruce Manager
 - `kubernetes.pvc.storage-classes` to define a subset of Storage Classes that can be created with K*S Resource Manager. If not specified, all classes are allowed.
 
+### Exposed configuration API
+
+The backend exposes a `GET /api/config` endpoint that returns a flat JSON key → value map of selected application properties. Only authenticated users (at minimum `ROLE_USER`) can call this endpoint.
+
+The set of properties that may be returned is governed by an explicit allow-list:
+
+- `application.config.exposed` (`KRM_CONFIG_EXPOSED`) — comma-separated list of property names (or environment variable names) whose values are allowed to be returned. Any property not in this list is never exposed, regardless of its actual presence in the environment.
+
+**Example** — to allow the frontend to read the Envoy gateway name and the application URL:
+
+```yaml
+application:
+  config:
+    exposed: REACT_APP_GATEWAY_NAME,APPLICATION_URL
+```
+
+or via environment variables:
+
+```
+KRM_CONFIG_EXPOSED=REACT_APP_GATEWAY_NAME,APPLICATION_URL
+REACT_APP_GATEWAY_NAME=my-gateway
+```
+
+The endpoint will then return:
+
+```json
+{
+  "REACT_APP_GATEWAY_NAME": "my-gateway",
+  "APPLICATION_URL": "https://example.com"
+}
+```
+
+Properties present in the allow-list but not set in the environment are silently omitted from the response. An empty allow-list results in an empty response `{}`.
+
 Other properties represent the typical Spring properties for the application configuration:
 
 - ``auth.basic`` if the basic auth configuration is used (with the username and password)

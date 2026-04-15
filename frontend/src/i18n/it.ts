@@ -344,6 +344,30 @@ const messages = {
             },
             authenticationTitle: 'Autenticazione'
         },
+        'httproutes.gateway.networking.k8s.io': {
+            name: 'HTTP Route |||| HTTP Route',
+            fields: {
+                id: 'ID',
+                spec: {
+                    hostname: 'Hostname',
+                    backendService: 'Servizio Backend',
+                    backendPort: 'Porta Backend',
+                    path: 'Prefisso percorso match',
+                    backendPath: 'Prefisso percorso riscrittura',
+                    gatewayName: 'Gateway',
+                    auth: {
+                        type: 'Autenticazione',
+                        secretName: 'Secret credenziali',
+                        headerName: 'Header API Key',
+                        issuer: 'Issuer JWT',
+                        jwksUri: 'URI JWKS',
+                        audiences: 'Audience',
+                        claimToHeader: 'Claim "%{claim}" → Header',
+                    },
+                },
+            },
+            authenticationTitle: 'Autenticazione',
+        },
     },
     dashboard: {
         title: 'Resource Manager',

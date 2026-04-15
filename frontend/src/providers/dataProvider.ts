@@ -164,7 +164,16 @@ export const dataProvider = (
                 }
                 return json;
             });
-        }
+        },
+        // backend config
+        fetchConfig: (): Promise<Record<string, string>> => {
+            return httpClient(`${apiUrl}/config`).then(({ json }) => {
+                if (!json || typeof json !== 'object') {
+                    return {};
+                }
+                return json as Record<string, string>;
+            });
+        },
     };
 };
 

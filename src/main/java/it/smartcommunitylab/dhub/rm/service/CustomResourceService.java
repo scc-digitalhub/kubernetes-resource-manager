@@ -22,7 +22,9 @@ import it.smartcommunitylab.dhub.rm.model.CustomResourceSchema;
 import it.smartcommunitylab.dhub.rm.model.IdAwareCustomResource;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -30,12 +32,14 @@ import java.util.stream.Collectors;
 import java.util.Collections;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.Assert;
+import org.springframework.util.StringUtils;
 
 /**
  * K8S Custom Resource service. CRUD operations over CRs.
@@ -44,6 +48,11 @@ import org.springframework.util.Assert;
 public class CustomResourceService {
 
     public static final Logger logger = LoggerFactory.getLogger(CustomResourceService.class);
+
+    private static final String LABEL = "app.kubernetes.io/created-by";
+
+    @Value("${kubernetes.cr.created-by:}")
+    private String createdByLabel;
 
     private final KubernetesClient client;
     private final CustomResourceDefinitionService crdService;
@@ -86,6 +95,12 @@ public class CustomResourceService {
             .withPlural(plural)
             .withVersion(version)
             .build();
+    }
+
+    private boolean hasCreatedByLabel(GenericKubernetesResource cr) {
+        if (!StringUtils.hasText(createdByLabel)) return true;
+        Map<String, String> labels = cr.getMetadata().getLabels();
+        return labels != null && createdByLabel.equals(labels.get(LABEL));
     }
 
     private NamespaceableResource<GenericKubernetesResource> fetchCustomResource(
@@ -143,7 +158,12 @@ public class CustomResourceService {
         if (ids == null) {
             List<GenericKubernetesResource> list = Collections.emptyList();
             try {
-                list = client.genericKubernetesResources(context).inNamespace(namespace).list().getItems();
+                var query = client.genericKubernetesResources(context).inNamespace(namespace);
+                if (StringUtils.hasText(createdByLabel)) {
+                    list = query.withLabel(LABEL, createdByLabel).list().getItems();
+                } else {
+                    list = query.list().getItems();
+                }
             } catch (Exception e) {
                 logger.warn("No CRD {} resources in namespace {}", crdId, namespace);
             }
@@ -157,7 +177,7 @@ public class CustomResourceService {
                 .stream()
                 .forEach(id -> {
                     NamespaceableResource<GenericKubernetesResource> cr = fetchCustomResource(context, id, namespace);
-                    if (cr != null) {
+                    if (cr != null && hasCreatedByLabel(cr.get())) {
                         crs.add(new IdAwareCustomResource(cr.get()));
                     }
                 });
@@ -192,6 +212,9 @@ public class CustomResourceService {
         if (cr == null) {
             throw new NoSuchElementException(SystemKeys.ERROR_NO_CR);
         }
+        if (!hasCreatedByLabel(cr.get())) {
+            throw new AccessDeniedException(SystemKeys.ERROR_CRD_NOT_ALLOWED);
+        }
 
         return new IdAwareCustomResource(cr.get());
     }
@@ -223,6 +246,16 @@ public class CustomResourceService {
             throw new ValidationException(errors);
         }
 
+        // inject ownership label
+        if (StringUtils.hasText(createdByLabel)) {
+            Map<String, String> labels = request.getCr().getMetadata().getLabels();
+            if (labels == null) {
+                labels = new HashMap<>();
+                request.getCr().getMetadata().setLabels(labels);
+            }
+            labels.put(LABEL, createdByLabel);
+        }
+
         return new IdAwareCustomResource(client.resource(request.getCr()).inNamespace(namespace).create());
     }
 
@@ -252,6 +285,9 @@ public class CustomResourceService {
         if (cr == null) {
             throw new NoSuchElementException(SystemKeys.ERROR_NO_CR_WITH_VERSION);
         }
+        if (!hasCreatedByLabel(cr.get())) {
+            throw new AccessDeniedException(SystemKeys.ERROR_CRD_NOT_ALLOWED);
+        }
 
         //schema validation
         Set<ValidationMessage> errors = validateCR(schema, request.getCr());
@@ -264,6 +300,13 @@ public class CustomResourceService {
                 .resource(cr.get())
                 .edit(object -> {
                     object.setAdditionalProperties(request.getCr().getAdditionalProperties());
+                    // preserve ownership label
+                    if (StringUtils.hasText(createdByLabel)) {
+                        if (object.getMetadata().getLabels() == null) {
+                            object.getMetadata().setLabels(new HashMap<>());
+                        }
+                        object.getMetadata().getLabels().put(LABEL, createdByLabel);
+                    }
                     return object;
                 })
         );
@@ -288,6 +331,9 @@ public class CustomResourceService {
 
         //if version is not found, these CRD and version do not exist in Kubernetes and an error is thrown
         if (cr != null) {
+            if (!hasCreatedByLabel(cr.get())) {
+                throw new AccessDeniedException(SystemKeys.ERROR_CRD_NOT_ALLOWED);
+            }
             cr.delete();
         }
     }
