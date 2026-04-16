@@ -24,7 +24,6 @@ server:
 # application
 application.url: ${APPLICATION_URL:}
 application.core-name: ${KRM_APPLICATION_CORE_NAME:dhcore}
-application.config.exposed: ${KRM_CONFIG_EXPOSED:}
 
 #kubernetes
 kubernetes:

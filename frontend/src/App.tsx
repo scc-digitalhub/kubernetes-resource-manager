@@ -39,7 +39,6 @@ import AppDashboard from './pages/Dashboard';
 import { CrdShow } from './resources/crd';
 import { useContext, useState } from 'react';
 import { View, ViewsContext, fetchViews } from './resources';
-import { BackendConfigProvider } from './providers/backendConfigProvider';
 
 //import config
 import { Config } from './providers/configProvider';
@@ -113,9 +112,7 @@ function App() {
                 store={store}
                 theme={themeOptions}
             >
-                <BackendConfigProvider>
-                    <DynamicAdminUI />
-                </BackendConfigProvider>
+                <DynamicAdminUI />
             </AdminContext>
         </BrowserRouter>
     );

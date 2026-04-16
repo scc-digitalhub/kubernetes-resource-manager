@@ -53,7 +53,6 @@ import { Box, Grid, Typography } from '@mui/material';
 import { useRef } from 'react';
 import AltRouteIcon from '@mui/icons-material/AltRoute';
 import { Breadcrumb } from '@dslab/ra-breadcrumb';
-import { useBackendConfig } from '../../providers/backendConfigProvider';
 import { labels2types } from '../../utils';
 
 const CR_HTTPROUTES = 'httproutes.gateway.networking.k8s.io';
@@ -143,7 +142,7 @@ const buildSecurityPolicyData = (routeName: string, auth: any) => {
 };
 
 /** Convert flat form data to the actual HTTPRoute spec. */
-const buildHttpRouteSpec = (data: any, gatewayName: string) => {
+const buildHttpRouteSpec = (data: any) => {
     const rule: any = {
         backendRefs: [
             {
@@ -169,7 +168,6 @@ const buildHttpRouteSpec = (data: any, gatewayName: string) => {
         ];
     }
     return {
-        parentRefs: [{ name: gatewayName }],
         hostnames: [data.spec.hostname],
         rules: [rule],
     };
@@ -394,8 +392,6 @@ const CrCreate = () => {
     const redirect = useRedirect();
     const [createSecPolicy] = useCreate();
     const authRef = useRef<any>({ type: 'none' });
-    const backendConfig = useBackendConfig();
-    const gatewayName = backendConfig['ENVOY_GATEWAY_NAME'] || 'eg';
 
     const defaults = () => ({
         spec: { auth: { type: 'none', headerName: 'x-api-key' } },
@@ -407,7 +403,7 @@ const CrCreate = () => {
             apiVersion,
             kind,
             metadata: data.metadata,
-            spec: buildHttpRouteSpec(data, gatewayName),
+            spec: buildHttpRouteSpec(data),
         };
     };
 
@@ -457,8 +453,6 @@ const CrEdit = () => {
     const [updateSecPolicy] = useUpdate();
     const [deleteSecPolicy] = useDelete();
     const authRef = useRef<any>({ type: 'none' });
-    const backendConfig = useBackendConfig();
-    const gatewayName = backendConfig['ENVOY_GATEWAY_NAME'] || 'eg';
 
     const routeName = record?.metadata?.name;
     const { data: secPolicy, isLoading: spLoading } = useGetOne(
@@ -528,7 +522,7 @@ const CrEdit = () => {
             apiVersion,
             kind,
             metadata: data.metadata,
-            spec: buildHttpRouteSpec(data, gatewayName),
+            spec: buildHttpRouteSpec(data),
         };
     };
 
