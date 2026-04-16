@@ -1,0 +1,101 @@
+# Template file – do not apply directly.
+# Use scripts/deploy.sh, which substitutes the ${VAR} placeholders via envsubst.
+#
+# Required variables:
+#   GATEWAY_NAME        – name of the parent Gateway (e.g. "prod-gateway")
+#   GATEWAY_NAMESPACE   – namespace of the parent Gateway (e.g. "gateway-system")
+#   HOSTNAME_PATTERN    – Go regexp with optional {namespace} placeholder
+#                         (e.g. "^[a-z0-9-]+\\.{namespace}\\.example\\.com$")
+#   IMAGE               – container image (e.g. "ghcr.io/scc-digitalhub/httproute-webhook:latest")
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: httproute-webhook
+  namespace: httproute-webhook
+  labels:
+    app.kubernetes.io/name: httproute-webhook
+    app.kubernetes.io/component: admission-webhook
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: httproute-webhook
+  template:
+    metadata:
+      labels:
+        app: httproute-webhook
+        app.kubernetes.io/name: httproute-webhook
+        app.kubernetes.io/component: admission-webhook
+    spec:
+      serviceAccountName: httproute-webhook
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: webhook
+          image: ${IMAGE}
+          imagePullPolicy: Always
+          ports:
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          env:
+            - name: GATEWAY_NAME
+              value: "${GATEWAY_NAME}"
+            - name: GATEWAY_NAMESPACE
+              value: "${GATEWAY_NAMESPACE}"
+            - name: HOSTNAME_PATTERN
+              value: "${HOSTNAME_PATTERN}"
+            - name: TLS_CERT_FILE
+              value: /certs/tls.crt
+            - name: TLS_KEY_FILE
+              value: /certs/tls.key
+            - name: PORT
+              value: "8443"
+          volumeMounts:
+            - name: certs
+              mountPath: /certs
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: certs
+          secret:
+            secretName: httproute-webhook-certs
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: httproute-webhook

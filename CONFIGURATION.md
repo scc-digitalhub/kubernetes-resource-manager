@@ -221,7 +221,7 @@ kubernetes:
 
 #### Gateway reference
 
-TODO
+By default, the gateway reference is not set. To populate it, use Web admission webhook, as one provide in extensions/httproute-webhook.
 
 #### Form fields
 

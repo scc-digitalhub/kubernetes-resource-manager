@@ -1,0 +1,50 @@
+# Template file – caBundle is injected by scripts/deploy.sh.
+# Do not apply directly.
+#
+# Required variables (in addition to CA_BUNDLE):
+#   WEBHOOK_LABEL_KEY    – label key the HTTPRoute must carry to be intercepted
+#                          (e.g. "networking.example.com/managed-gateway")
+#   WEBHOOK_LABEL_VALUE  – expected label value (e.g. "true")
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: httproute-webhook
+  labels:
+    app.kubernetes.io/name: httproute-webhook
+    app.kubernetes.io/component: admission-webhook
+webhooks:
+  - name: validate.httproutes.gateway.networking.k8s.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: httproute-webhook
+        namespace: httproute-webhook
+        path: /validate
+        port: 443
+      # Filled in by scripts/deploy.sh from the generated CA certificate.
+      caBundle: "${CA_BUNDLE}"
+    rules:
+      - apiGroups: ["gateway.networking.k8s.io"]
+        apiVersions: ["v1", "v1beta1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["httproutes"]
+        scope: Namespaced
+    # Only intercept HTTPRoutes that carry the opt-in label.
+    # HTTPRoutes without the label are passed through unchanged.
+    objectSelector:
+      matchLabels:
+        "${WEBHOOK_LABEL_KEY}": "${WEBHOOK_LABEL_VALUE}"
+    # Do not intercept HTTPRoutes created inside the webhook's own namespace or
+    # in core Kubernetes system namespaces.
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - kube-public
+            - kube-node-lease
+            - httproute-webhook
+    failurePolicy: Fail
+    sideEffects: None
+    timeoutSeconds: 10
