@@ -101,11 +101,13 @@ const buildSecurityPolicyData = (routeName: string, auth: any) => {
         kind: SP_KIND,
         metadata: { name: `${routeName}-sp` },
         spec: {
-            targetRef: {
-                group: 'gateway.networking.k8s.io',
-                kind: 'HTTPRoute',
-                name: routeName,
-            },
+            targetRefs: [
+                {
+                    group: 'gateway.networking.k8s.io',
+                    kind: 'HTTPRoute',
+                    name: routeName,
+                },
+            ],
         } as any,
     };
 
@@ -115,8 +117,8 @@ const buildSecurityPolicyData = (routeName: string, auth: any) => {
     }
     if (auth.type === 'apiKey') {
         base.spec.apiKeyAuth = {
-            credentials: [{ name: auth.secretName }],
-            extractFrom: [{ header: auth.headerName || 'x-api-key' }],
+            credentialRefs: [{ name: auth.secretName }],
+            extractFrom: [{ headers: [auth.headerName || 'x-api-key'] }],
         };
         return base;
     }
@@ -482,9 +484,9 @@ const CrEdit = () => {
     } else if (secPolicy?.spec?.apiKeyAuth) {
         authType = 'apiKey';
         authSecretName =
-            secPolicy.spec.apiKeyAuth.credentials?.[0]?.name || '';
+            secPolicy.spec.apiKeyAuth.credentialRefs?.[0]?.name || '';
         authHeaderName =
-            secPolicy.spec.apiKeyAuth.extractFrom?.[0]?.header || 'x-api-key';
+            secPolicy.spec.apiKeyAuth.extractFrom?.[0]?.headers?.[0] || 'x-api-key';
     } else if (secPolicy?.spec?.jwt) {
         authType = 'jwt';
         const jwtProvider = secPolicy.spec.jwt.providers?.[0] || {};
@@ -763,7 +765,7 @@ const CrShow = () => {
                                 )}
                             >
                                 <Box>
-                                    {secPolicy.spec.apiKeyAuth.credentials?.[0]
+                                    {secPolicy.spec.apiKeyAuth.credentialRefs?.[0]
                                         ?.name || ''}
                                 </Box>
                             </Labeled>
@@ -774,7 +776,7 @@ const CrShow = () => {
                             >
                                 <Box>
                                     {secPolicy.spec.apiKeyAuth.extractFrom?.[0]
-                                        ?.header || ''}
+                                        ?.headers?.[0] || ''}
                                 </Box>
                             </Labeled>
                         </>
