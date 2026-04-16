@@ -17,7 +17,6 @@ This document describes all environment variables and application settings for t
     - [PersistentVolumeClaim settings](#persistentvolumeclaim-settings)
     - [Secret filtering](#secret-filtering)
     - [Authentication](#authentication)
-    - [Exposed configuration API](#exposed-configuration-api)
     - [CORS](#cors)
     - [Management endpoints](#management-endpoints)
   - [2. Front-end environment variables](#2-front-end-environment-variables)
@@ -26,7 +25,7 @@ This document describes all environment variables and application settings for t
     - [HTTPRoute](#httproute)
       - [Prerequisites](#prerequisites)
       - [Enabling HTTPRoute management](#enabling-httproute-management)
-      - [Gateway name](#gateway-name)
+      - [Gateway reference](#gateway-reference)
       - [Form fields](#form-fields)
       - [Security policies](#security-policies)
         - [No authentication](#no-authentication)
@@ -135,31 +134,6 @@ KRM supports Basic Auth and OAuth2. Configure one or the other:
 | `auth.oauth2.role-claim` | `KRM_AUTH_OAUTH2_ROLE_CLAIM` | JWT claim whose value is mapped to KRM roles |
 | `auth.oauth2.scopes` | `KRM_AUTH_OAUTH2_SCOPES` | Comma-separated scopes requested by the front-end |
 
-### Exposed configuration API
-
-The backend exposes `GET /api/config` (requires `ROLE_USER`) that returns a flat JSON map of selected property values. This is used by the frontend to read runtime settings (e.g. the Envoy gateway name) without hard-coding them at build time.
-
-| Property | Environment variable | Default | Description |
-|---|---|---|---|
-| `application.config.exposed` | `KRM_CONFIG_EXPOSED` | _(empty)_ | Comma-separated list of property or environment variable names whose values may be returned. Properties not in this list are never exposed. An empty list returns `{}`. |
-
-**Example** — expose the Envoy gateway name:
-
-```yaml
-application:
-  config:
-    exposed: ENVOY_GATEWAY_NAME
-```
-
-```
-KRM_CONFIG_EXPOSED=ENVOY_GATEWAY_NAME
-ENVOY_GATEWAY_NAME=my-gateway
-```
-
-Response:
-```json
-{ "ENVOY_GATEWAY_NAME": "my-gateway" }
-```
 
 ### CORS
 
@@ -245,20 +219,9 @@ kubernetes:
     allowed: httproutes.gateway.networking.k8s.io,securitypolicies.gateway.envoyproxy.io
 ```
 
-#### Gateway name
+#### Gateway reference
 
-The name of the `Gateway` object that every `HTTPRoute` will be attached to is resolved at runtime via the exposed configuration API rather than being baked into the frontend bundle.
-
-1. Set the gateway name as an environment variable on the backend process:
-   ```
-   ENVOY_GATEWAY_NAME=my-gateway
-   ```
-2. Add it to the exposed configuration allow-list:
-   ```
-   KRM_CONFIG_EXPOSED=ENVOY_GATEWAY_NAME
-   ```
-
-The frontend reads `GET /api/config` after login and uses the value automatically. If `ENVOY_GATEWAY_NAME` is not exposed, the frontend falls back to `eg` (the default Envoy Gateway name).
+TODO
 
 #### Form fields
 
