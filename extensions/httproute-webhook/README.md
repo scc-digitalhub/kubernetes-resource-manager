@@ -1,43 +1,47 @@
-# HTTPRoute Admission Webhook
+# HTTPRoute Admission Policies
 
-A Kubernetes admission webhook for `HTTPRoute` resources
-(`gateway.networking.k8s.io`). It provides two behaviours:
+A server-less Kubernetes admission policy for `HTTPRoute` resources
+(`gateway.networking.k8s.io`). It provides two behaviours implemented with
+**CEL (Common Expression Language)**, evaluated directly inside the API server —
+no webhook pod, TLS certificate, or container image is required.
 
-| Webhook type | Path | What it does |
+| Policy type | Kind | What it does |
 |---|---|---|
-| **Mutating** | `/mutate` | Injects a parent Gateway `parentRef` (name + namespace from env vars) into every admitted HTTPRoute that does not already reference that gateway. |
-| **Validating** | `/validate` | Rejects HTTPRoutes whose `spec.hostnames` entries do not match a configurable regular-expression pattern parameterised with the route's namespace. |
+| **Mutating** | `MutatingAdmissionPolicy` | Injects a parent Gateway `parentRef` into every admitted HTTPRoute that does not already reference the configured gateway. |
+| **Validating** | `ValidatingAdmissionPolicy` | Rejects HTTPRoutes whose `spec.hostnames` entries do not match a configurable regular-expression pattern parameterised with the route's namespace. |
 
 ## How it works
 
 ### Parent gateway injection
 
-When an `HTTPRoute` is created or updated, the mutating webhook checks whether
-`spec.parentRefs` already contains an entry for the configured gateway. If not,
-it appends one:
+When an `HTTPRoute` is created or updated, the mutating policy checks whether
+`spec.parentRefs` already contains **exactly** the configured gateway as its
+sole entry. If not, it replaces the entire `parentRefs` array with a
+single-element slice:
 
 ```yaml
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
       kind: Gateway
-      name: <GATEWAY_NAME>
-      namespace: <GATEWAY_NAMESPACE>
+      name: <gatewayName>
+      namespace: <gatewayNamespace>
 ```
 
-The operation is idempotent: if the parentRef is already present the webhook
-passes the object through unchanged.
+The operation is idempotent: if `parentRefs` already contains only the
+configured gateway the object is admitted unchanged (the `matchCondition` skips
+evaluation entirely).
 
 ### Hostname pattern validation
 
-The validating webhook evaluates every entry in `spec.hostnames` against the
-effective regular expression built from `HOSTNAME_PATTERN` by substituting the
+The validating policy evaluates every entry in `spec.hostnames` against the
+effective regular expression built from `hostnamePattern` by substituting the
 `{namespace}` placeholder with the HTTPRoute's own namespace.
 
 **Example**
 
 ```
-HOSTNAME_PATTERN=^[a-z0-9-]+\.{namespace}\.example\.com$
+hostnamePattern: ^[a-z0-9-]+\.{namespace}\.example\.com$
 ```
 
 For a route in namespace `team-alpha` the effective pattern becomes:
@@ -51,14 +55,38 @@ This means:
 - `api.team-alpha.example.com` ✅ allowed
 - `api.team-beta.example.com` ❌ rejected — cross-namespace hostname
 
-Any route with a hostname that does not match is rejected with a descriptive
-error message.
+Any route with a non-matching hostname is rejected with a descriptive error
+message listing the offending hostnames and the effective pattern.
+Setting `hostnamePattern` to an empty string disables hostname validation.
+
+### Same-namespace backend enforcement
+
+The validating policy also rejects any HTTPRoute whose `spec.rules[*].backendRefs`
+contain an explicit `namespace` field that refers to a namespace other than the
+route's own namespace. This prevents tenants from routing traffic to services
+they do not own.
+
+When the `namespace` field is absent the Gateway API defaults it to the route's
+namespace, so omitting the field is always allowed:
+
+```yaml
+spec:
+  rules:
+    - backendRefs:
+        - name: my-service   # namespace omitted → same-namespace → ✅ allowed
+          port: 80
+        - name: other-svc
+          namespace: team-b  # explicit foreign namespace → ❌ rejected
+          port: 80
+```
+
+On rejection the error message lists each offending `<name>.<namespace>` reference.
 
 ### Opt-in label selector
 
-Both webhook configurations use an `objectSelector` to intercept only
-`HTTPRoute` objects that carry a specific label. Routes without the label are
-never sent to the webhook by the API server.
+Both policy bindings use an `objectSelector` to intercept only `HTTPRoute`
+objects that carry a specific label. Routes without the label are never
+evaluated by the policies.
 
 The label key and value are set at deploy time via `WEBHOOK_LABEL_KEY` and
 `WEBHOOK_LABEL_VALUE`. To opt a route in, add the label to its metadata:
@@ -69,115 +97,31 @@ metadata:
     networking.example.com/managed-gateway: "true"
 ```
 
-## Environment variables
+## Kubernetes version requirements
 
-### Webhook server (pod env vars)
+| Feature | Min version | State |
+|---|---|---|
+| `ValidatingAdmissionPolicy` | 1.28 | beta (GA in 1.30) |
+| `MutatingAdmissionPolicy` | 1.32 | beyta (feature gate required) |
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `GATEWAY_NAME` | ✅ | – | Name of the parent `Gateway` to inject |
-| `GATEWAY_NAMESPACE` | ✅ | – | Namespace of the parent `Gateway` |
-| `HOSTNAME_PATTERN` | | `^[a-z0-9]([a-z0-9\-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]*[a-z0-9])?)*$` | Go regexp for hostname validation; `{namespace}` is replaced at runtime |
-| `TLS_CERT_FILE` | | `/certs/tls.crt` | Path to the TLS server certificate |
-| `TLS_KEY_FILE` | | `/certs/tls.key` | Path to the TLS server private key |
-| `PORT` | | `8443` | HTTPS listening port |
-
-### deploy.sh variables
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `GATEWAY_NAME` | ✅ | – | Passed to the pod and used to configure the mutating webhook |
-| `GATEWAY_NAMESPACE` | ✅ | – | Passed to the pod and used to configure the mutating webhook |
-| `WEBHOOK_LABEL_KEY` | ✅ | – | Label key an `HTTPRoute` must carry to be intercepted by the webhook (e.g. `networking.example.com/managed-gateway`) |
-| `WEBHOOK_LABEL_VALUE` | ✅ | – | Expected value for `WEBHOOK_LABEL_KEY` (e.g. `true`) |
-| `NAMESPACE` | | `httproute-webhook` | Kubernetes namespace for the webhook deployment |
-| `IMAGE` | | `ghcr.io/scc-digitalhub/httproute-webhook:latest` | Container image to deploy |
-| `HOSTNAME_PATTERN` | | any valid DNS label sequence | Go regexp passed to the pod; `{namespace}` is replaced at runtime |
-| `BUILD` | | `false` | Set to `true` to build and push the image before deploying |
-| `DAYS` | | `3650` | TLS certificate validity in days |
-
-## Repository layout
-
+To enable the alpha gate on your cluster (required for gateway injection):
 ```
-extensions/httproute-webhook/
-├── cmd/
-│   └── main.go                         # Entry point – sets up TLS server
-├── pkg/
-│   └── webhook/
-│       ├── types.go                    # Shared types (AdmissionReview, JSONPatch, …)
-│       ├── handler.go                  # HTTP handler + Config type
-│       ├── mutator.go                  # Mutating logic (parentRef injection)
-│       └── validator.go                # Validating logic (hostname pattern check)
-├── deploy/
-│   ├── namespace.yaml
-│   ├── rbac.yaml                       # ServiceAccount
-│   ├── deployment.yaml                 # Template – uses ${VAR} placeholders
-│   ├── service.yaml
-│   ├── mutating-webhook-config.yaml    # Template – caBundle filled by deploy.sh
-│   └── validating-webhook-config.yaml  # Template – caBundle filled by deploy.sh
-├── scripts/
-│   ├── generate-certs.sh               # Generates self-signed CA + server cert
-│   ├── deploy.sh                       # Full deploy (certs + manifests)
-│   └── undeploy.sh                     # Remove all resources
-├── Dockerfile
-├── go.mod
-└── README.md
+--feature-gates=MutatingAdmissionPolicy=true
 ```
+
+`deploy-cel.sh` warns gracefully when the `MutatingAdmissionPolicy` API is
+unavailable, so clusters that only need hostname validation can still use the
+validating policy.
 
 ## Prerequisites
 
-- Kubernetes ≥ 1.25 with the Gateway API CRDs installed
+- Kubernetes ≥ 1.28 with the Gateway API CRDs installed
 - `kubectl` configured for the target cluster
-- `openssl` (cert generation)
 - `envsubst` (part of **GNU gettext**; `brew install gettext` on macOS)
-- Docker with the **buildx** plugin (included in Docker Desktop ≥ 4.x; for Linux install via `docker-buildx-plugin`)
-- A GitHub personal access token with **`write:packages`** scope (only for pushing to ghcr.io)
 
 ## Quick start
 
-### 1. Build and push the image (optional)
-
-Skip this step if you use the pre-built image from ghcr.io.
-
-`scripts/build-push.sh` uses **Docker buildx** to produce a single multi-arch
-manifest covering `linux/amd64` and `linux/arm64` and pushes it to ghcr.io.
-
-```bash
-cd extensions/httproute-webhook
-
-# Authenticate (one-time or use a CI secret)
-export GITHUB_TOKEN=$(gh auth token)          # or a PAT with write:packages
-export GITHUB_OWNER=scc-digitalhub           # GitHub user or org
-
-# Optional overrides:
-# export IMAGE_NAME=httproute-webhook         # default
-# export TAG=v1.0.0                           # default: latest
-# export EXTRA_TAGS="v1.0 v1"                # additional tags
-# export PLATFORMS=linux/amd64,linux/arm64   # default
-# export BUILDER=multiarch-builder           # buildx builder name
-
-bash scripts/build-push.sh
-```
-
-The script will:
-1. Log in to `ghcr.io` using `GITHUB_TOKEN`.
-2. Create (or reuse) a `docker-container` buildx builder capable of cross-compilation.
-3. Build for all `PLATFORMS` in a single `docker buildx build --push` call.
-4. Tag the manifest as `ghcr.io/${GITHUB_OWNER}/${IMAGE_NAME}:${TAG}` (plus any `EXTRA_TAGS`).
-
-#### GitHub Actions example
-
-```yaml
-- name: Build and push multi-arch image
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    GITHUB_OWNER: ${{ github.repository_owner }}
-    TAG: ${{ github.ref_name }}
-    EXTRA_TAGS: latest
-  run: bash extensions/httproute-webhook/scripts/build-push.sh
-```
-
-### 2. Deploy
+### 1. Deploy
 
 ```bash
 cd extensions/httproute-webhook
@@ -187,36 +131,27 @@ export GATEWAY_NAME=prod-gateway
 export GATEWAY_NAMESPACE=gateway-system
 export WEBHOOK_LABEL_KEY=networking.example.com/managed-gateway
 export WEBHOOK_LABEL_VALUE=true
-export HOSTNAME_PATTERN=^[a-z0-9-]+\.{namespace}\.example\.com$
 
 # Optional
-# export NAMESPACE=httproute-webhook
-# export IMAGE=ghcr.io/<your-org>/httproute-webhook:latest
-# export DAYS=3650
+# export HOSTNAME_PATTERN='^[a-z0-9-]+\.{namespace}\.example\.com$'
+# export NAMESPACE=httproute-webhook   # namespace for the params ConfigMap
 
-bash scripts/deploy.sh
+bash scripts/deploy-cel.sh
 ```
 
-`deploy.sh` will:
+`deploy-cel.sh` will:
 
-1. Generate a self-signed CA and server certificate via `generate-certs.sh`.
-2. Store the certificates in the `httproute-webhook-certs` Kubernetes secret.
-3. Apply the `Namespace`, `ServiceAccount`, `Deployment`, and `Service`.
-4. Inject the CA bundle into the `MutatingWebhookConfiguration` and
-   `ValidatingWebhookConfiguration` and apply them.
-5. Wait for the deployment rollout to complete.
+1. Ensure the `${NAMESPACE}` namespace exists.
+2. Apply the `httproute-webhook-params` ConfigMap with gateway and hostname
+   pattern configuration.
+3. Apply the `ValidatingAdmissionPolicy` and its binding (hostname validation).
+4. Apply the `MutatingAdmissionPolicy` and its binding (gateway injection),
+   warning if the alpha API is unavailable.
 
-### 3. Verify
+### 2. Verify
 
 ```bash
-# Check that the pods are running
-kubectl get pods -n httproute-webhook
-
-# Check the webhook is reachable
-kubectl run curl-test --image=curlimages/curl --rm -it --restart=Never \
-  -- curl -k https://httproute-webhook.httproute-webhook.svc/healthz
-
-# Create a test HTTPRoute with the opt-in label and check it gets the parentRef injected
+# Create a test HTTPRoute with the opt-in label
 kubectl apply -f - <<'EOF'
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -234,54 +169,123 @@ spec:
           port: 80
 EOF
 
-kubectl get httproute test-route -n default -o yaml | grep -A5 parentRefs
+# Check that parentRef was injected
+kubectl get httproute test-route -n default -o yaml | grep -A6 parentRefs
 ```
 
-### 4. Remove
+### 3. Remove
 
 ```bash
 # Keep the namespace:
-bash scripts/undeploy.sh
+bash scripts/undeploy-cel.sh
 
 # Also delete the namespace:
-DELETE_NS=true bash scripts/undeploy.sh
+DELETE_NS=true bash scripts/undeploy-cel.sh
 ```
 
-## Certificate rotation
+## Configuration reference
 
-Re-run `generate-certs.sh` to issue new certificates and update both the
-Kubernetes secret and the webhook configurations:
+All configuration is stored in the `httproute-webhook-params` ConfigMap in
+the `${NAMESPACE}` namespace:
+
+| Key | Required | Default | Description |
+|---|---|---|---|
+| `gatewayName` | ✅ | – | Name of the parent `Gateway` to inject |
+| `gatewayNamespace` | ✅ | – | Namespace of the parent `Gateway` |
+| `hostnamePattern` | | any valid DNS hostname | Regex with optional `{namespace}` placeholder; empty string disables validation |
+
+### deploy-cel.sh variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `GATEWAY_NAME` | ✅ | – | Stored as `gatewayName` in the params ConfigMap |
+| `GATEWAY_NAMESPACE` | ✅ | – | Stored as `gatewayNamespace` in the params ConfigMap |
+| `WEBHOOK_LABEL_KEY` | ✅ | – | Label key an `HTTPRoute` must carry to be intercepted |
+| `WEBHOOK_LABEL_VALUE` | ✅ | – | Expected value for `WEBHOOK_LABEL_KEY` |
+| `NAMESPACE` | | `httproute-webhook` | Kubernetes namespace for the params ConfigMap |
+| `HOSTNAME_PATTERN` | | any valid DNS hostname | Regex passed as `hostnamePattern`; `{namespace}` replaced at runtime |
+
+### Updating configuration at runtime
+
+Edit the ConfigMap directly — changes take effect immediately for new admission
+requests without any restart:
 
 ```bash
-cd extensions/httproute-webhook
-
-NAMESPACE=httproute-webhook bash scripts/generate-certs.sh
-
-source .ca-bundle
-export CA_BUNDLE
-
-# Update the secret (generate-certs.sh already does this via kubectl apply)
-
-# Patch the webhook configurations with the new CA bundle
-kubectl patch mutatingwebhookconfiguration httproute-webhook \
-    --type='json' \
-    -p="[{\"op\":\"replace\",\"path\":\"/webhooks/0/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"}]"
-
-kubectl patch validatingwebhookconfiguration httproute-webhook \
-    --type='json' \
-    -p="[{\"op\":\"replace\",\"path\":\"/webhooks/0/clientConfig/caBundle\",\"value\":\"${CA_BUNDLE}\"}]"
-
-# Restart pods to pick up the new secret
-kubectl rollout restart deployment/httproute-webhook -n httproute-webhook
+kubectl patch configmap httproute-webhook-params \
+  -n httproute-webhook \
+  --patch '{"data":{"hostnamePattern":"^[a-z0-9-]+\\.{namespace}\\.example\\.com$"}}'
 ```
 
-## cert-manager integration (alternative TLS)
+## How the CEL expressions work
 
-If your cluster runs [cert-manager](https://cert-manager.io), you can replace
-the self-signed certificate generation with a `Certificate` resource. Annotate
-the webhook configurations with
-`cert-manager.io/inject-ca-from: httproute-webhook/httproute-webhook-cert`
-and cert-manager will manage rotation automatically.
+### Mutation — `MutatingAdmissionPolicy` (`httproute-gateway-injection`)
+
+A `matchCondition` skips evaluation when `spec.parentRefs` already contains
+exactly the configured gateway as its sole entry (idempotency guard). When
+mutation is needed, a `JSONPatch` expression emits either an `add` operation
+(field absent) or a `replace` operation (field present) to enforce a
+single-gateway `parentRefs`:
+
+```
+!has(object.spec.parentRefs)
+  ? JSONPatch{op:"add",    path:"/spec/parentRefs", value:[{group, kind, name, namespace}]}
+  : JSONPatch{op:"replace", path:"/spec/parentRefs", value:[{group, kind, name, namespace}]}
+```
+
+`reinvocationPolicy: IfNeeded` ensures the policy re-evaluates if another
+mutating policy modifies the object afterwards.
+
+### Validation — `ValidatingAdmissionPolicy` (`httproute-hostname-policy`)
+
+A CEL `variable` builds the effective pattern by substituting `{namespace}`
+with the HTTPRoute's actual namespace using the CEL `replace()` string function.
+The validation expression asserts that every declared hostname matches:
+
+```
+params.data.hostnamePattern == "" ||
+!has(object.spec.hostnames) ||
+object.spec.hostnames.size() == 0 ||
+object.spec.hostnames.all(h, h.matches(variables.effectivePattern))
+```
+
+On failure, a `messageExpression` lists the offending hostnames and the
+effective regex for easy diagnosis.
+
+### Validation rule 2 — same-namespace backendRefs
+
+The second validation expression iterates over every rule and every backendRef,
+rejecting any entry whose `namespace` field is set and differs from the route's
+own namespace:
+
+```
+!has(object.spec.rules) ||
+object.spec.rules.all(rule,
+  !has(rule.backendRefs) ||
+  rule.backendRefs.all(ref,
+    !has(ref.namespace) || ref.namespace == object.metadata.namespace
+  )
+)
+```
+
+The `messageExpression` flattens the offending `<name>.<namespace>` pairs
+across all rules into a single diagnostic string.
+
+## Repository layout
+
+```
+extensions/httproute-webhook/
+├── deploy/
+│   └── cel/
+│       ├── params-configmap.yaml                  # ConfigMap template – gateway + hostname config
+│       ├── mutating-admission-policy.yaml          # MutatingAdmissionPolicy (k8s >= 1.32 alpha)
+│       ├── mutating-admission-policy-binding.yaml  # Binding template – label + NS selectors
+│       ├── validating-admission-policy.yaml        # ValidatingAdmissionPolicy (k8s >= 1.28)
+│       └── validating-admission-policy-binding.yaml  # Binding template – label + NS selectors
+├── scripts/
+│   ├── deploy-cel.sh                              # Deploy CEL policies
+│   └── undeploy-cel.sh                            # Remove CEL policies
+└── README.md
+```
 
 ## Hostname pattern examples
 
@@ -290,16 +294,17 @@ and cert-manager will manage rotation automatically.
 | `^[a-z0-9-]+\.{namespace}\.example\.com$` | `^[a-z0-9-]+\.team-a\.example\.com$` | Each namespace can only expose hostnames under its own subdomain |
 | `^[a-z0-9-]+\.(staging\|prod)\.example\.com$` | Same (no `{namespace}`) | All namespaces share the same two subdomains |
 | `^[a-z0-9-]+\.{namespace}\.[a-z0-9-]+\.example\.com$` | `^[a-z0-9-]+\.team-a\.[a-z0-9-]+\.example\.com$` | Namespace subdomain + arbitrary environment segment |
+| *(empty)* | – | Hostname validation disabled; any hostname is accepted |
 
 ## Security considerations
 
-- The webhook server runs as a non-root user (UID 65532) in a read-only root
-  filesystem with all Linux capabilities dropped.
-- TLS 1.2 is the minimum accepted version.
-- The webhook is excluded from `kube-system`, `kube-public`, `kube-node-lease`,
-  and its own namespace to prevent admission bootstrap deadlocks.
-- `failurePolicy: Fail` ensures that if the webhook is unreachable, HTTPRoute
-  admission is blocked. Adjust to `Ignore` in development environments if needed.
+- `failurePolicy: Fail` on both policies ensures that if the API server cannot
+  evaluate a policy (e.g. the params ConfigMap is missing), HTTPRoute admission
+  is blocked rather than silently allowed.
+- Both policy bindings exclude `kube-system`, `kube-public`, `kube-node-lease`,
+  and the namespace that holds the params ConfigMap to prevent bootstrap issues.
+- There is no webhook pod, no TLS secret, and no network-accessible admission
+  surface — the entire admission logic runs inside the API server process.
 
 ## License
 

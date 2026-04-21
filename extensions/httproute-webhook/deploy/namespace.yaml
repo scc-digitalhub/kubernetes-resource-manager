@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: httproute-webhook
-  labels:
-    app.kubernetes.io/name: httproute-webhook
-    app.kubernetes.io/component: admission-webhook

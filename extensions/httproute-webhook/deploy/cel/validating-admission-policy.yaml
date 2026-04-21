@@ -1,0 +1,102 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# ValidatingAdmissionPolicy – httproute-hostname-policy
+#
+# Requires: Kubernetes >= 1.28 (beta) or >= 1.30 (GA).
+#
+# Enforces that every hostname declared in spec.hostnames matches a
+# cluster-operator-defined regular expression that is parameterised with the
+# HTTPRoute's own namespace.  This prevents cross-namespace hostname hijacking
+# by ensuring tenants can only claim hostnames scoped to their namespace.
+#
+# The {namespace} placeholder in hostnamePattern is replaced at admission time
+# with the HTTPRoute's actual namespace before the regex is evaluated.
+#
+# Example hostnamePattern value in the ConfigMap:
+#   ^[a-z0-9-]+\.{namespace}\.example\.com$
+#
+# For a route in namespace "team-alpha" the effective pattern becomes:
+#   ^[a-z0-9-]+\.team-alpha\.example\.com$
+#
+# Configuration is read from the params ConfigMap (see params-configmap.yaml).
+# The policy is activated per-cluster via ValidatingAdmissionPolicyBinding
+# (see validating-admission-policy-binding.yaml).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: httproute-hostname-policy
+  labels:
+    app.kubernetes.io/name: httproute-webhook
+    app.kubernetes.io/component: admission-policy
+spec:
+  failurePolicy: Fail
+
+  # Parameters are read from a ConfigMap; the specific instance is resolved by
+  # the binding via paramRef.
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+
+  # Intercept CREATE and UPDATE on all HTTPRoute versions.
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["gateway.networking.k8s.io"]
+        apiVersions: ["v1", "v1beta1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["httproutes"]
+        scope: Namespaced
+
+  variables:
+    # Build the effective regex by substituting {namespace} with the route's
+    # actual namespace. The replace() CEL function (strings extension,
+    # available in k8s >= 1.27) performs a simple literal string replacement,
+    # replicating the strings.ReplaceAll call in the original Go validator.
+    # NOTE: The namespace value is used as a literal replacement, not as a
+    # sub-regex. DNS label characters contain no RE2 metacharacters, but if
+    # your namespace naming allows them you should add further escaping.
+    - name: effectivePattern
+      expression: |
+        params.data.hostnamePattern.replace('{namespace}', object.metadata.namespace)
+
+  validations:
+    # Rule 1: hostname pattern enforcement.
+    # The route is valid when:
+    #   1. hostname validation is disabled (hostnamePattern is empty), OR
+    #   2. no hostnames are declared, OR
+    #   3. every declared hostname matches the namespace-scoped pattern.
+    - expression: |
+        params.data.hostnamePattern == "" ||
+        !has(object.spec.hostnames) ||
+        object.spec.hostnames.size() == 0 ||
+        object.spec.hostnames.all(h, h.matches(variables.effectivePattern))
+      # messageExpression is evaluated only when the validation fails; it lists
+      # the offending hostnames with the effective pattern for easy diagnosis.
+      messageExpression: |
+        "hostnames [" +
+        object.spec.hostnames.filter(h, !h.matches(variables.effectivePattern)).join(", ") +
+        "] in namespace \"" + object.metadata.namespace +
+        "\" do not match required pattern \"" + variables.effectivePattern + "\""
+      reason: Forbidden
+
+    # Rule 2: same-namespace backendRef enforcement.
+    # Rejects any HTTPRoute whose spec.rules[*].backendRefs contain an explicit
+    # namespace field that differs from the route's own namespace.
+    # When the namespace field is absent the Gateway API defaults it to the
+    # route's namespace, so omitted entries are always considered same-namespace.
+    - expression: |
+        !has(object.spec.rules) ||
+        object.spec.rules.all(rule,
+          !has(rule.backendRefs) ||
+          rule.backendRefs.size() == 0 ||
+          rule.backendRefs.all(ref,
+            !has(ref.namespace) || ref.namespace == object.metadata.namespace
+          )
+        )
+      messageExpression: |
+        "backendRefs must only reference services in the route's own namespace (\"" +
+        object.metadata.namespace + "\"); cross-namespace backend references found: [" +
+        object.spec.rules.filter(rule, has(rule.backendRefs)).map(rule,
+          rule.backendRefs.filter(ref, has(ref.namespace) && ref.namespace != object.metadata.namespace)
+            .map(ref, ref.name + "." + ref.namespace)
+        ).flatten().join(", ") + "]"
+      reason: Forbidden

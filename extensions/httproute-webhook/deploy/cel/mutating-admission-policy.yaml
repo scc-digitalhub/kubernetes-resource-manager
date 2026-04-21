@@ -1,0 +1,90 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# MutatingAdmissionPolicy – httproute-gateway-injection
+#
+# Requires: Kubernetes >= 1.32 with the MutatingAdmissionPolicy feature gate
+# enabled (alpha in 1.32).
+#
+# Injects a single parent Gateway reference into every HTTPRoute whose
+# spec.parentRefs does not already point solely to the configured gateway.
+# This is the CEL-based, server-less equivalent of the Go webhook mutator.
+#
+# Configuration is read from the params ConfigMap (see params-configmap.yaml).
+# The policy is activated per-cluster via MutatingAdmissionPolicyBinding
+# (see mutating-admission-policy-binding.yaml).
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: MutatingAdmissionPolicy
+metadata:
+  name: httproute-gateway-injection
+  labels:
+    app.kubernetes.io/name: httproute-webhook
+    app.kubernetes.io/component: admission-policy
+spec:
+  failurePolicy: Fail
+
+  # Parameters are read from a ConfigMap; the specific instance is resolved by
+  # the binding via paramRef.
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+
+  # Intercept CREATE and UPDATE on all HTTPRoute versions.
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["gateway.networking.k8s.io"]
+        apiVersions: ["v1", "v1beta1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["httproutes"]
+        scope: Namespaced
+
+  # Skip mutation entirely when the route already has exactly the one configured
+  # gateway as its sole parentRef. This mirrors the idempotency check in the
+  # original Go-based mutator and avoids spurious audit events.
+  matchConditions:
+    - name: needs-gateway-injection
+      expression: |
+        !has(object.spec.parentRefs) ||
+        object.spec.parentRefs.size() != 1 ||
+        object.spec.parentRefs[0].name != params.data.gatewayName ||
+        object.spec.parentRefs[0].namespace != params.data.gatewayNamespace
+
+  mutations:
+    # Replace the entire parentRefs array with a single entry that points to
+    # the configured gateway, regardless of how many (or which) refs existed
+    # before. Use JSON Patch "add" when the field is absent (creates it) and
+    # "replace" when it is present (overwrites it), matching RFC 6902 semantics.
+    - patchType: JSONPatch
+      jsonPatch:
+        expression: |
+          [
+            !has(object.spec.parentRefs)
+              ? JSONPatch{
+                  op: "add",
+                  path: "/spec/parentRefs",
+                  value: [
+                    {
+                      "group": "gateway.networking.k8s.io",
+                      "kind":  "Gateway",
+                      "name":  params.data.gatewayName,
+                      "namespace": params.data.gatewayNamespace
+                    }
+                  ]
+                }
+              : JSONPatch{
+                  op: "replace",
+                  path: "/spec/parentRefs",
+                  value: [
+                    {
+                      "group": "gateway.networking.k8s.io",
+                      "kind":  "Gateway",
+                      "name":  params.data.gatewayName,
+                      "namespace": params.data.gatewayNamespace
+                    }
+                  ]
+                }
+          ]
+
+  # Re-evaluate if another webhook mutates the object after this policy runs,
+  # preserving the same behaviour as reinvocationPolicy: IfNeeded in the
+  # original MutatingWebhookConfiguration.
+  reinvocationPolicy: IfNeeded

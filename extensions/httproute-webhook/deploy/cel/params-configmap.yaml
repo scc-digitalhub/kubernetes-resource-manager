@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Template file – use scripts/deploy-cel.sh or envsubst before applying.
+#
+# Required variables:
+#   GATEWAY_NAME        – name of the parent Gateway (e.g. "prod-gateway")
+#   GATEWAY_NAMESPACE   – namespace of the parent Gateway (e.g. "gateway-system")
+#
+# Optional variables:
+#   NAMESPACE           – namespace for this ConfigMap (default: httproute-webhook)
+#   HOSTNAME_PATTERN    – regex with {namespace} placeholder
+#                         (e.g. "^[a-z0-9-]+\.{namespace}\.example\.com$")
+#                         Set to empty string to skip hostname pattern validation.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: httproute-webhook-params
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: httproute-webhook
+    app.kubernetes.io/component: admission-policy
+data:
+  # Name of the parent Gateway to inject into every managed HTTPRoute.
+  gatewayName: "${GATEWAY_NAME}"
+  # Namespace of the parent Gateway.
+  gatewayNamespace: "${GATEWAY_NAMESPACE}"
+  # Regular expression used to validate HTTPRoute hostnames.
+  # The literal string {namespace} is replaced at admission time with the
+  # HTTPRoute's own namespace, enabling per-namespace hostname enforcement.
+  # Leave empty to allow any hostname.
+  hostnamePattern: "${HOSTNAME_PATTERN}"

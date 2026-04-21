@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Template file – do not apply directly.
+# Use scripts/deploy-cel.sh, which substitutes the ${VAR} placeholders via envsubst.
+#
+# Required variables (in addition to those in params-configmap.yaml):
+#   WEBHOOK_LABEL_KEY    – label key the HTTPRoute must carry to be intercepted
+#                          (e.g. "networking.example.com/managed-gateway")
+#   WEBHOOK_LABEL_VALUE  – expected label value (e.g. "true")
+#   NAMESPACE            – namespace that holds the params ConfigMap
+#                          (default: httproute-webhook)
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: httproute-hostname-policy
+  labels:
+    app.kubernetes.io/name: httproute-webhook
+    app.kubernetes.io/component: admission-policy
+spec:
+  policyName: httproute-hostname-policy
+
+  # Resolve parameters from the ConfigMap deployed by deploy-cel.sh.
+  paramRef:
+    name: httproute-webhook-params
+    namespace: ${NAMESPACE}
+    # Deny admission if the ConfigMap is missing rather than silently
+    # passing requests through with no hostname validation.
+    parameterNotFoundAction: Deny
+
+  matchResources:
+    # Only intercept HTTPRoutes that carry the opt-in label.
+    # HTTPRoutes without this label are never evaluated by this policy.
+    objectSelector:
+      matchLabels:
+        "${WEBHOOK_LABEL_KEY}": "${WEBHOOK_LABEL_VALUE}"
+
+    # Exclude system namespaces and the namespace that holds the params
+    # ConfigMap to avoid any bootstrap dependency issues.
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - kube-public
+            - kube-node-lease
+            - ${NAMESPACE}
+
+  # Deny the request when any validation expression evaluates to false.
+  validationActions:
+    - Deny
