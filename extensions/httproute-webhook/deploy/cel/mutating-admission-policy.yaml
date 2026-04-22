@@ -45,8 +45,8 @@ spec:
       expression: |
         !has(object.spec.parentRefs) ||
         object.spec.parentRefs.size() != 1 ||
-        object.spec.parentRefs[0].name != params.data.gatewayName ||
-        object.spec.parentRefs[0].namespace != params.data.gatewayNamespace
+        object.spec.parentRefs[0].name != string(params.data.gatewayName) ||
+        object.spec.parentRefs[0].namespace != string(params.data.gatewayNamespace)
 
   mutations:
     # Replace the entire parentRefs array with a single entry that points to
@@ -65,8 +65,8 @@ spec:
                     {
                       "group": "gateway.networking.k8s.io",
                       "kind":  "Gateway",
-                      "name":  params.data.gatewayName,
-                      "namespace": params.data.gatewayNamespace
+                      "name":  string(params.data.gatewayName),
+                      "namespace": string(params.data.gatewayNamespace)
                     }
                   ]
                 }
@@ -77,8 +77,8 @@ spec:
                     {
                       "group": "gateway.networking.k8s.io",
                       "kind":  "Gateway",
-                      "name":  params.data.gatewayName,
-                      "namespace": params.data.gatewayNamespace
+                      "name":  string(params.data.gatewayName),
+                      "namespace": string(params.data.gatewayNamespace)
                     }
                   ]
                 }

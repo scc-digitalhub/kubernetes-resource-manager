@@ -34,14 +34,9 @@ spec:
       matchLabels:
         "${WEBHOOK_LABEL_KEY}": "${WEBHOOK_LABEL_VALUE}"
 
-    # Exclude system namespaces and the namespace that holds the params
-    # ConfigMap to avoid any bootstrap dependency issues.
     namespaceSelector:
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
             - kube-system
-            - kube-public
-            - kube-node-lease
-            - ${NAMESPACE}
