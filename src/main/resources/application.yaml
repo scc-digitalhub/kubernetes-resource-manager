@@ -63,6 +63,11 @@ auth:
 
 security.cors.origins: ${SECURITY_CORS_ORIGINS:}
 
+# logging
+logging:
+  level:
+    AUDIT_LOGGER: ${LOG_LEVEL_AUDIT:INFO}
+
 management:
   server:
     port: ${MANAGEMENT_PORT:8081}
